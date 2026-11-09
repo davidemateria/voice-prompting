@@ -1,0 +1,98 @@
+[build-system]
+requires = ["hatchling>=1.29.0", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+
+[project]
+name = "voice-prompting"
+authors = [{ name = "Davide Materia" }]
+description = "Voice dictation for terminal coding agents: dictated prompts cleaned into English by your own LLM CLI."
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: POSIX",
+  "Programming Language :: Python :: 3 :: Only",
+  "Typing :: Typed",
+]
+dynamic = ["version"]
+dependencies = [
+    "faster-whisper>=1.1",
+]
+
+[project.scripts]
+voice-prompting = "voice_prompting.cli:main"
+voice-prompting-edit = "voice_prompting.cli:edit_main"
+
+[project.urls]
+Repository = "https://github.com/davidemateria/voice-prompting"
+
+[project.optional-dependencies]
+gpu = [
+    "nvidia-cublas-cu12>=12,<13 ; sys_platform == 'linux'",
+    "nvidia-cudnn-cu12>=9,<10 ; sys_platform == 'linux'",
+]
+
+
+[dependency-groups]
+test = ["pytest>=8.2.2,<10.0"]
+dev = ["ruff==0.15.12", { include-group = "test" }]
+
+
+[tool.uv]
+python-preference = "only-managed"
+
+
+[tool.hatch]
+version = { source = "vcs" }
+build.hooks.vcs = { version-file = "src/voice_prompting/_version.py" }
+
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = [
+  "--import-mode=importlib",
+  "-ra",
+  "--showlocals",
+  "--strict-markers",
+  "--strict-config",
+]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+
+[tool.ruff]
+exclude = ["src/voice_prompting/_version.py"]
+target-version = "py311"
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+
+[tool.ruff.lint]
+extend-select = [
+  "A", "ANN", "ARG", "BLE", "C4", "C90", "D", "E", "W", "ERA", "EXE", "FBT", "FLY", "FURB",
+  "G", "I", "ICN", "INP", "ISC003", "N", "PERF", "PIE", "PLC", "PLE", "PLR", "PLW", "PT",
+  "PTH", "PYI", "RET", "RSE", "RUF", "S", "SIM", "SLOT", "T20", "TCH", "TID", "UP", "YTT", "TRY",
+]
+# Formatter-enforced rules, plus three that only add noise here.
+ignore = ["D206", "E111", "E114", "E117", "W191", "PLR0913", "PLR2004", "TRY003"]
+flake8-unused-arguments.ignore-variadic-names = true
+flake8-annotations.allow-star-arg-any = true
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "D", "C901", "INP001", "E721"]
+"tests/**/test_*.py" = ["ANN", "I002"]
+"src/voice_prompting/**/__init__.py" = ["I002"]
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 140
+max-line-length = 120
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+required-imports = ["from __future__ import annotations"]
