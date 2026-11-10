@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import subprocess
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -11,21 +12,15 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+@dataclass
 class FakeRunner:
     """Stands in for ``subprocess.run``: records calls and returns a canned result or raises."""
 
-    def __init__(
-        self,
-        stdout: str = "Clean prompt.\n",
-        returncode: int = 0,
-        stderr: str = "",
-        exc: Exception | None = None,
-    ) -> None:
-        self.stdout = stdout
-        self.returncode = returncode
-        self.stderr = stderr
-        self.exc = exc
-        self.calls: list[tuple[list[str], dict[str, Any]]] = []
+    stdout: str = "Clean prompt.\n"
+    returncode: int = 0
+    stderr: str = ""
+    exc: Exception | None = None
+    calls: list[tuple[list[str], dict[str, Any]]] = field(default_factory=list)
 
     def __call__(
         self, argv: Sequence[str], **kwargs: Any

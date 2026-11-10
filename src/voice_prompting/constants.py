@@ -2,37 +2,19 @@
 
 from __future__ import annotations
 
+import shlex
+
 CONFIG_DIR_NAME = "voice-prompting"
 CONFIG_FILE_NAME = "config.toml"
-CONFIG_KEYS = frozenset(
-    {
-        "llm_command",
-        "glossary_file",
-        "timeout_s",
-        "whisper_model",
-        "whisper_device",
-        "speech_threshold",
-    }
-)
 
 SYSTEM_PROMPT_PLACEHOLDER = "{system_prompt}"
 GLOSSARY_HEADING = "Glossary of terms the speaker uses (correct spelling):"
-DEFAULT_LLM_COMMAND = (
-    "claude",
-    "-p",
-    "--model",
-    "claude-sonnet-5-5",
-    "--effort",
-    "low",
-    "--tools",
-    "",
-    "--strict-mcp-config",
-    "--setting-sources",
-    "",
-    "--no-session-persistence",
-    "--disable-slash-commands",
-    "--system-prompt",
-    SYSTEM_PROMPT_PLACEHOLDER,
+DEFAULT_LLM_COMMAND = tuple(
+    shlex.split(
+        "claude -p --model claude-sonnet-5-5 --effort low --tools '' "
+        "--strict-mcp-config --setting-sources '' --no-session-persistence "
+        f"--disable-slash-commands --system-prompt {SYSTEM_PROMPT_PLACEHOLDER}"
+    )
 )
 DEFAULT_TIMEOUT_S = 60.0
 
@@ -46,20 +28,8 @@ DEFAULT_SPEECH_THRESHOLD = 0.03
 
 SAMPLE_RATE = 16000
 CHUNK_S = 0.1
-RECORDER_ARGV = (
-    "rec",
-    "-q",
-    "-t",
-    "raw",
-    "-b",
-    "16",
-    "-e",
-    "signed-integer",
-    "-c",
-    "1",
-    "-r",
-    str(SAMPLE_RATE),
-    "-",
+RECORDER_ARGV = tuple(
+    f"rec -q -t raw -b 16 -e signed-integer -c 1 -r {SAMPLE_RATE} -".split()
 )
 TOGGLE_KEY = " "
 FINISH_KEY = "\x07"  # Ctrl+G, the same key that opened the recorder

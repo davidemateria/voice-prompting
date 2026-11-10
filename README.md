@@ -6,7 +6,15 @@ It hooks into the key your agent already has for "edit the prompt in an external
 
 ## Install
 
-Follow the steps for your platform, then the common steps. Every step ends with a check.
+**Quick** (Ubuntu, Debian, WSL2 Ubuntu, macOS with Homebrew): one command installs SoX, uv, the tool (with GPU support if `nvidia-smi` works) and the agent settings.
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/davidemateria/voice-prompting/main/install.sh | sh
+```
+
+Then open a new terminal and run `voice-prompting dictate` to test. On Windows, do the WSL2 steps 1–2 and 5 below first. You still need Claude Code installed and logged in (Common, step 3).
+
+**Step by step**, if you prefer to see each step or something fails. Every step ends with a check.
 
 ### 1. Platform
 
@@ -45,7 +53,7 @@ Follow the steps for your platform, then the common steps. Every step ends with 
 
 ### 3. Connect your agent
 
-Add one setting, merged into the JSON object already in the file (create the file if it doesn't exist), then restart the agent.
+Run `voice-prompting setup`, then restart the agent. It adds one setting for each agent it finds, keeping a `.bak` copy of the file it changes:
 
 | Agent | File | Setting |
 |---|---|---|
@@ -108,7 +116,7 @@ speech_threshold = 0.03               # microphone level that counts as speech
 | Transcribing says CPU despite an NVIDIA GPU | Install with `[gpu]`; set `whisper_device = "cuda"` to see the reason as an error. |
 | `exited with code 1` mentioning login | Run `claude` and log in. |
 
-Other files the agent opens with Ctrl+G (for example `CLAUDE.md` from `/memory`) go to `$EDITOR`, or `vi`. Commands the agent runs, which have no terminal, are left untouched.
+Only files in the system temp directory, where agents write the prompt, are dictated into. Other files the agent opens with Ctrl+G (for example `CLAUDE.md` from `/memory`) go to `$EDITOR`, or `vi`. Editor calls without a terminal (for example `git rebase --continue` run by the agent) accept the file as it is.
 
 ## Uninstall
 

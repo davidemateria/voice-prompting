@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import os
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 
 from voice_prompting.constants import (
     CONFIG_DIR_NAME,
     CONFIG_FILE_NAME,
-    CONFIG_KEYS,
     DEFAULT_LLM_COMMAND,
     DEFAULT_SPEECH_THRESHOLD,
     DEFAULT_TIMEOUT_S,
@@ -18,10 +17,7 @@ from voice_prompting.constants import (
     DEFAULT_WHISPER_MODEL,
     WHISPER_DEVICES,
 )
-
-
-class ConfigError(ValueError):
-    """Raised when the configuration file is invalid."""
+from voice_prompting.errors import ConfigError
 
 
 @dataclass(frozen=True)
@@ -65,7 +61,8 @@ def load_config(path: Path | None = None) -> Config:
         The parsed configuration. A relative ``glossary_file`` is resolved against the config directory.
 
     Raises:
-        ConfigError: If the file is not valid TOML, has unknown keys or values of the wrong type.
+        ConfigError: If the file is not valid TOML, has unknown keys or values of the wrong type,
+            or names a glossary file that does not exist.
     """
     path = path or default_config_path()
     if not path.is_file():
@@ -74,7 +71,7 @@ def load_config(path: Path | None = None) -> Config:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"{path}: {exc}") from exc
-    if unknown := data.keys() - CONFIG_KEYS:
+    if unknown := data.keys() - {f.name for f in fields(Config)}:
         raise ConfigError(f"{path}: unknown keys {sorted(unknown)}")
 
     command = data.get("llm_command", list(DEFAULT_LLM_COMMAND))
@@ -87,9 +84,12 @@ def load_config(path: Path | None = None) -> Config:
     glossary = data.get("glossary_file")
     if glossary is not None and not isinstance(glossary, str):
         raise ConfigError(f"{path}: glossary_file must be a path string")
+    glossary_file = path.parent / Path(glossary).expanduser() if glossary else None
+    if glossary_file is not None and not glossary_file.is_file():
+        raise ConfigError(f"{path}: glossary_file {glossary_file} does not exist")
     return Config(
         llm_command=tuple(command),
-        glossary_file=path.parent / Path(glossary).expanduser() if glossary else None,
+        glossary_file=glossary_file,
         timeout_s=_positive(data, "timeout_s", DEFAULT_TIMEOUT_S, path),
         whisper_model=_string(data, "whisper_model", DEFAULT_WHISPER_MODEL, path),
         whisper_device=_device(data, path),

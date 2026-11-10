@@ -11,10 +11,11 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from voice_prompting.cleanup import CleanupError, clean
-from voice_prompting.config import ConfigError, load_config
+from voice_prompting.cleanup import clean
+from voice_prompting.config import load_config
 from voice_prompting.constants import EDIT_COMMAND_NAME, FALLBACK_EDITOR
-from voice_prompting.dictation import DictationError, dictate
+from voice_prompting.errors import VoicePromptingError
+from voice_prompting.setup_agents import setup_agents
 from voice_prompting.spinner import spinner
 
 if TYPE_CHECKING:
@@ -22,6 +23,8 @@ if TYPE_CHECKING:
 
     from voice_prompting.cleanup import Runner
     from voice_prompting.config import Config
+
+    Listener = Callable[[Config, str], str]
 
 
 def llm_label(command: Sequence[str]) -> str:
@@ -59,16 +62,27 @@ def report_failure(exc: Exception) -> int:
 def box_note(typed: str) -> str:
     """Describe the text already in the prompt box for the recorder line."""
     words = len(typed.split())
-    if not words:
-        return ""
-    return f"{words} word{'s' if words > 1 else ''} in the box"
+    return f"{words} word{'s' if words > 1 else ''} in the box" if words else ""
+
+
+def dictate(config: Config, note: str) -> str:
+    """Record and transcribe speech; imports the heavy dictation stack only when called."""
+    from voice_prompting import dictation  # noqa: PLC0415 - numpy takes 0.6 s
+
+    return dictation.dictate(config, note)
+
+
+def clean_with_spinner(text: str, config: Config, run: Runner, typed: str = "") -> str:
+    """Clean ``text`` while showing which model is working."""
+    with spinner(f"Cleaning with {llm_label(config.llm_command)}"):
+        return clean(text, config, run, typed)
 
 
 def edit_file(
     path: Path,
     config: Config,
     run: Runner = subprocess.run,
-    listen: Callable[[Config, str], str] = dictate,
+    listen: Listener = dictate,
 ) -> int:
     """Dictate into the prompt stored in ``path``: the cleaned dictation goes after the text in it.
 
@@ -87,32 +101,30 @@ def edit_file(
     typed = path.read_text(encoding="utf-8")
     try:
         spoken = listen(config, box_note(typed))
-    except DictationError as exc:
+        if not spoken:
+            return 0
+        cleaned = clean_with_spinner(spoken, config, run, typed)
+    except VoicePromptingError as exc:
         return report_failure(exc)
     except KeyboardInterrupt:
         return 1
-    if not spoken:
-        return 0
-    try:
-        with spinner(f"Cleaning with {llm_label(config.llm_command)}"):
-            cleaned = clean(spoken, config, run, typed)
-    except CleanupError as exc:
-        return report_failure(exc)
-    if typed.strip() and not typed.endswith("\n"):
+    if not typed.strip():
+        typed = ""
+    elif not typed.endswith("\n"):
         typed += "\n"
-    path.write_text(f"{typed if typed.strip() else ''}{cleaned}\n", encoding="utf-8")
+    path.write_text(f"{typed}{cleaned}\n", encoding="utf-8")
     return 0
 
 
 def edit_main(
     argv: Sequence[str] | None = None,
     run: Runner = subprocess.run,
-    listen: Callable[[Config, str], str] = dictate,
+    listen: Listener = dictate,
 ) -> int:
     """Act as a harness's external editor: dictate into the prompt file it hands over.
 
     Files outside the temp directory (e.g. a ``CLAUDE.md`` opened by ``/memory``) go to the real editor.
-    Without a terminal (a process started by the agent) nothing is touched.
+    Without a terminal (e.g. ``git rebase --continue`` run by the agent) the file is accepted as is.
 
     Args:
         argv: Command-line arguments; defaults to ``sys.argv[1:]``.
@@ -129,15 +141,12 @@ def edit_main(
     parser.add_argument("file", type=Path, help="prompt file written by the harness")
     path = parser.parse_args(argv).file
     if not sys.stdin.isatty():
-        sys.stderr.write(
-            f"{EDIT_COMMAND_NAME}: no terminal attached, leaving {path} unchanged\n"
-        )
-        return 1
+        return 0
     if not is_prompt_file(path):
         return open_real_editor(path)
     try:
         config = load_config()
-    except ConfigError as exc:
+    except VoicePromptingError as exc:
         return report_failure(exc)
     return edit_file(path, config, run, listen)
 
@@ -145,9 +154,9 @@ def edit_main(
 def main(
     argv: Sequence[str] | None = None,
     run: Runner = subprocess.run,
-    listen: Callable[[Config, str], str] = dictate,
+    listen: Listener = dictate,
 ) -> int:
-    """Run ``voice-prompting clean`` (text on stdin) or ``dictate`` (microphone); print the cleaned prompt.
+    """Run ``voice-prompting clean`` (text on stdin), ``dictate`` (microphone) or ``setup`` (agent settings).
 
     Args:
         argv: Command-line arguments; defaults to ``sys.argv[1:]``.
@@ -167,15 +176,22 @@ def main(
     commands.add_parser(
         "dictate", help="record the microphone and print the cleaned English prompt"
     )
+    commands.add_parser(
+        "setup", help="make Ctrl+G in Claude Code and pi start voice-prompting"
+    )
     command = parser.parse_args(argv).command
     try:
+        if command == "setup":
+            sys.stdout.write("\n".join(setup_agents()) + "\n")
+            return 0
         config = load_config()
         text = listen(config, "") if command == "dictate" else sys.stdin.read()
-        with spinner(f"Cleaning with {llm_label(config.llm_command)}"):
-            cleaned = clean(text, config, run)
-    except (CleanupError, ConfigError, DictationError) as exc:
+        cleaned = clean_with_spinner(text, config, run)
+    except VoicePromptingError as exc:
         sys.stderr.write(f"voice-prompting: {exc}\n")
         return 1
+    except KeyboardInterrupt:
+        return 130
     if cleaned.strip():
         sys.stdout.write(f"{cleaned}\n")
     return 0

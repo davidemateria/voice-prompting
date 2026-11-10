@@ -43,8 +43,9 @@ def test_cpu_needs_no_gpu_check():
     assert resolve_device("cpu") == "cpu"
 
 
-def test_preload_without_gpu_extra(monkeypatch):
-    monkeypatch.setattr(dictation, "CUDA_LIBRARY_PACKAGES", ("no_such_package_xyz",))
+@pytest.mark.parametrize("package", ["no_such_package_xyz", "no_such_parent_xyz.lib"])
+def test_preload_without_gpu_extra(monkeypatch, package):
+    monkeypatch.setattr(dictation, "CUDA_LIBRARY_PACKAGES", (package,))
 
     assert not preload_cuda_libraries()
 
@@ -60,6 +61,7 @@ def test_auto_falls_back_to_cpu_and_cuda_fails_without_libraries(monkeypatch):
 def test_batches_are_transcribed_in_order_with_previous_text_as_context():
     model = FakeWhisper()
     transcriber = BatchTranscriber(lambda: (model, "cuda"))
+    transcriber.start()
     transcriber.submit(batch(2.0))
     transcriber.submit(batch(1.0))
 
@@ -70,11 +72,13 @@ def test_batches_are_transcribed_in_order_with_previous_text_as_context():
     assert transcriber.progress == 1.0
 
 
-def test_load_failure_is_raised_at_finish():
+@pytest.mark.parametrize("error", [RuntimeError, ImportError])
+def test_load_failure_is_raised_at_finish(error):
     def load():
-        raise RuntimeError("CUDA driver too old")
+        raise error("CUDA driver too old")
 
     transcriber = BatchTranscriber(load)
+    transcriber.start()
     transcriber.submit(batch())
 
     with pytest.raises(DictationError, match="CUDA driver too old"):
@@ -89,6 +93,7 @@ def test_cancel_skips_batches_not_yet_started():
         return model, "cpu"
 
     transcriber = BatchTranscriber(load)
+    transcriber.start()
     transcriber.submit(batch())
     transcriber.cancel()
     release.set()

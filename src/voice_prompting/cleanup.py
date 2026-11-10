@@ -7,6 +7,7 @@ from importlib.resources import files
 from typing import TYPE_CHECKING
 
 from voice_prompting.constants import GLOSSARY_HEADING, SYSTEM_PROMPT_PLACEHOLDER
+from voice_prompting.errors import CleanupError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -17,25 +18,17 @@ if TYPE_CHECKING:
     Runner = Callable[..., subprocess.CompletedProcess[str]]
 
 
-class CleanupError(RuntimeError):
-    """Raised when the LLM command fails; callers keep the original text."""
-
-
 def system_prompt(glossary_file: Path | None = None) -> str:
     """Return the cleanup instructions, followed by the user's glossary if one is set.
 
     Args:
         glossary_file: Text file listing terms the speaker uses.
     """
-    instructions = (
-        files("voice_prompting")
-        .joinpath("system_prompt.md")
-        .read_text(encoding="utf-8")
-    )
+    prompt = (files("voice_prompting") / "system_prompt.md").read_text(encoding="utf-8")
     if glossary_file is None:
-        return instructions
+        return prompt
     glossary = glossary_file.read_text(encoding="utf-8")
-    return f"{instructions}\n{GLOSSARY_HEADING}\n{glossary}"
+    return f"{prompt}\n{GLOSSARY_HEADING}\n{glossary}"
 
 
 def build_invocation(

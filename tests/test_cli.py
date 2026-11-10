@@ -28,18 +28,8 @@ def prompt_file(tmp_path):
     return path
 
 
-@pytest.fixture
-def empty_prompt(tmp_path):
-    path = tmp_path / "prompt.md"
-    path.write_text("\n", encoding="utf-8")
-    return path
-
-
 def say(text):
-    def listen(_config, _note):
-        return text
-
-    return listen
+    return lambda _config, _note: text
 
 
 def _fail(exc):
@@ -66,14 +56,6 @@ def test_box_note():
     assert box_note(" \n") == ""
 
 
-def test_dictation_into_empty_prompt(empty_prompt, make_runner):
-    runner = make_runner()
-
-    assert edit_file(empty_prompt, Config(), runner, say("um run the tests")) == 0
-    assert empty_prompt.read_text(encoding="utf-8") == "Clean prompt.\n"
-    assert runner.calls[0][1]["input"] == "<transcript>um run the tests</transcript>"
-
-
 def test_dictation_goes_on_a_new_line_after_untouched_typed_text(
     prompt_file, make_runner
 ):
@@ -92,12 +74,17 @@ def test_dictation_goes_on_a_new_line_after_untouched_typed_text(
     )
 
 
-def test_typed_text_without_final_newline_gets_one(tmp_path, make_runner):
-    path = tmp_path / "prompt.md"
-    path.write_text("Fix it", encoding="utf-8")
+@pytest.mark.parametrize(
+    ("typed", "kept", "context"),
+    [("\n", "", ""), ("Fix it", "Fix it\n", "<typed>Fix it</typed>\n")],
+)
+def test_blank_or_unterminated_typed_text(tmp_path, make_runner, typed, kept, context):
+    path, runner = tmp_path / "prompt.md", make_runner()
+    path.write_text(typed, encoding="utf-8")
 
-    assert edit_file(path, Config(), make_runner(), say("now")) == 0
-    assert path.read_text(encoding="utf-8") == "Fix it\nClean prompt.\n"
+    assert edit_file(path, Config(), runner, say("now")) == 0
+    assert path.read_text(encoding="utf-8") == f"{kept}Clean prompt.\n"
+    assert runner.calls[0][1]["input"] == f"{context}<transcript>now</transcript>"
 
 
 @pytest.mark.parametrize(
@@ -128,7 +115,7 @@ def test_edit_main_without_terminal_touches_nothing(
     monkeypatch.setattr(sys, "stdin", io.StringIO())
     runner = make_runner()
 
-    assert edit_main([str(prompt_file)], runner) == 1
+    assert edit_main([str(prompt_file)], runner) == 0
     assert prompt_file.read_text(encoding="utf-8") == TYPED
     assert runner.calls == []
 
@@ -179,3 +166,15 @@ def test_main_dictate_prints_cleaned_prompt(make_runner, capsys):
     assert main(["dictate"], runner, say("um hello")) == 0
     assert capsys.readouterr().out == "Clean prompt.\n"
     assert runner.calls[0][1]["input"] == "<transcript>um hello</transcript>"
+
+
+def test_main_dictate_ctrl_c_exits_quietly(make_runner, capsys):
+    assert main(["dictate"], make_runner(), _fail(KeyboardInterrupt())) == 130
+    assert capsys.readouterr().err == ""
+
+
+def test_ctrl_c_during_cleanup_keeps_prompt(prompt_file, make_runner):
+    runner = make_runner(exc=KeyboardInterrupt())
+
+    assert edit_file(prompt_file, Config(), runner, say("more")) == 1
+    assert prompt_file.read_text(encoding="utf-8") == TYPED

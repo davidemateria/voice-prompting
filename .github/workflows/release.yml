@@ -1,0 +1,21 @@
+# Push a tag like v0.1.0 to test, build and publish to PyPI (trusted publishing, no token).
+name: release
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - run: uv run ruff check . && uv run ruff format --check .
+      - run: uv run pytest
+      - run: uv build
+      - run: uv publish

@@ -15,7 +15,8 @@ from voice_prompting.constants import (
     WHISPER_BEAM_SIZE,
     WHISPER_COMPUTE_TYPE,
 )
-from voice_prompting.recorder import RecordingError, record
+from voice_prompting.errors import DictationError, RecordingError
+from voice_prompting.recorder import record
 from voice_prompting.spinner import spinner
 
 if TYPE_CHECKING:
@@ -27,10 +28,6 @@ if TYPE_CHECKING:
     from voice_prompting.config import Config
 
 
-class DictationError(RuntimeError):
-    """Raised when recording or transcription fails."""
-
-
 def preload_cuda_libraries() -> bool:
     """Load cuBLAS and cuDNN from the ``gpu`` extra's wheels so CTranslate2 finds them by name.
 
@@ -39,7 +36,10 @@ def preload_cuda_libraries() -> bool:
     """
     pending: list[Path] = []
     for package in CUDA_LIBRARY_PACKAGES:
-        spec = importlib.util.find_spec(package)
+        try:
+            spec = importlib.util.find_spec(package)
+        except ModuleNotFoundError:
+            return False
         if spec is None or not spec.submodule_search_locations:
             return False
         pending += sorted(
@@ -82,9 +82,11 @@ def load_model(config: Config) -> tuple[WhisperModel, str]:
     from faster_whisper import WhisperModel  # noqa: PLC0415 - slow import
 
     device = resolve_device(config.whisper_device)
-    model = WhisperModel(
-        config.whisper_model, device=device, compute_type=WHISPER_COMPUTE_TYPE[device]
-    )
+    options = {"device": device, "compute_type": WHISPER_COMPUTE_TYPE[device]}
+    try:  # A cached model loads without the ~1 s online check for updates.
+        model = WhisperModel(config.whisper_model, local_files_only=True, **options)
+    except FileNotFoundError:
+        model = WhisperModel(config.whisper_model, **options)
     return model, device
 
 
@@ -123,7 +125,7 @@ class BatchTranscriber:
     """
 
     def __init__(self, load: Callable[[], tuple[WhisperModel, str]]) -> None:
-        """Start loading the model at once.
+        """Prepare the worker; :meth:`start` launches it.
 
         Args:
             load: Returns the model and its device (``cpu`` or ``cuda``).
@@ -136,7 +138,10 @@ class BatchTranscriber:
         self._error: Exception | None = None
         self._cancelled = False
         self._queue: queue.Queue[np.ndarray | None] = queue.Queue()
-        self._thread = threading.Thread(target=self._work)
+        self._thread = threading.Thread(target=self._work, daemon=True)
+
+    def start(self) -> None:
+        """Start loading the model in the background."""
         self._thread.start()
 
     def submit(self, audio: np.ndarray) -> None:
@@ -147,9 +152,7 @@ class BatchTranscriber:
     @property
     def progress(self) -> float:
         """Fraction of the submitted audio transcribed so far (1.0 when nothing is pending)."""
-        if not self.submitted_s:
-            return 1.0
-        return min(self.done_s / self.submitted_s, 1.0)
+        return min(self.done_s / self.submitted_s, 1.0) if self.submitted_s else 1.0
 
     def finish(self) -> str:
         """Wait for every submitted batch and return the joined text.
@@ -159,6 +162,8 @@ class BatchTranscriber:
         """
         self._queue.put(None)
         self._thread.join()
+        if isinstance(self._error, DictationError):
+            raise self._error
         if self._error is not None:
             raise DictationError(str(self._error)) from self._error
         return " ".join(self._texts)
@@ -186,33 +191,8 @@ class BatchTranscriber:
                 if text:
                     self._texts.append(text)
                 self.done_s = start + len(audio) / SAMPLE_RATE
-        except (OSError, RuntimeError, ValueError) as exc:
+        except (DictationError, ImportError, OSError, RuntimeError, ValueError) as exc:
             self._error = exc
-
-
-def _record_batches(config: Config, note: str) -> BatchTranscriber | None:
-    """Record, submitting each batch at its pause; None if recording never started."""
-    started: list[BatchTranscriber] = []
-
-    def start() -> None:
-        started.append(BatchTranscriber(lambda: load_model(config)))
-
-    def submit(audio: np.ndarray) -> None:
-        started[0].submit(audio)
-
-    try:
-        record(
-            config.speech_threshold,
-            note=note,
-            on_start=start,
-            on_batch=submit,
-            progress=lambda: started[0].progress if started else None,
-        )
-    except (RecordingError, KeyboardInterrupt):
-        if started:
-            started[0].cancel()
-        raise
-    return started[0] if started else None
 
 
 def dictate(config: Config, note: str = "") -> str:
@@ -228,12 +208,21 @@ def dictate(config: Config, note: str = "") -> str:
     Raises:
         DictationError: If the microphone cannot be recorded or the model fails.
     """
+    transcriber = BatchTranscriber(lambda: load_model(config))
     try:
-        transcriber = _record_batches(config, note)
+        record(
+            config.speech_threshold,
+            note=note,
+            on_start=transcriber.start,
+            on_batch=transcriber.submit,
+            progress=lambda: transcriber.progress,
+        )
     except RecordingError as exc:
+        transcriber.cancel()
         raise DictationError(str(exc)) from exc
-    if transcriber is None:
-        return ""
+    except KeyboardInterrupt:
+        transcriber.cancel()
+        raise
     if not transcriber.submitted_s:
         transcriber.cancel()
         return ""

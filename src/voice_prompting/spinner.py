@@ -32,13 +32,11 @@ def spinner(
     stop = threading.Event()
     start = time.monotonic()
 
-    def text() -> str:
-        return label if isinstance(label, str) else label()
-
     def draw() -> None:
         for frame in itertools.cycle(SPINNER_FRAMES):
+            text = label if isinstance(label, str) else label()
             out.write(
-                f"{CLEAR_LINE}  {frame}  {text()} · {time.monotonic() - start:.1f} s"
+                f"{CLEAR_LINE}  {frame}  {text} · {time.monotonic() - start:.1f} s"
             )
             out.flush()
             if stop.wait(SPINNER_INTERVAL_S):

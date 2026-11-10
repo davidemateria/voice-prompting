@@ -29,16 +29,13 @@ from voice_prompting.constants import (
     SAMPLE_RATE,
     TOGGLE_KEY,
 )
+from voice_prompting.errors import RecordingError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
 BYTES_PER_SAMPLE = 2
 CHUNK_BYTES = int(SAMPLE_RATE * CHUNK_S) * BYTES_PER_SAMPLE
-
-
-class RecordingError(RuntimeError):
-    """Raised when the microphone cannot be recorded."""
 
 
 def rms(samples: np.ndarray) -> float:
@@ -69,15 +66,7 @@ class Session:
         progress: Callable[[], float | None] | None = None,
         note: str = "",
     ) -> None:
-        """Start paused, waiting for the first Space.
-
-        Args:
-            speech_threshold: RMS level a chunk must reach to count as speech.
-            on_start: Called once, when recording starts for the first time.
-            on_batch: Receives the samples of each closed batch that contains speech.
-            progress: Fraction of the submitted audio already transcribed, shown while paused.
-            note: Shown on the line before recording starts.
-        """
+        """Start paused, waiting for the first Space; arguments as in :func:`record`."""
         self.speech_threshold = speech_threshold
         self.note = note
         self.on_start = on_start
@@ -114,10 +103,8 @@ class Session:
         self.mic_ready = True
         self._pending += data
         while len(self._pending) >= CHUNK_BYTES:
-            raw, self._pending = (
-                self._pending[:CHUNK_BYTES],
-                self._pending[CHUNK_BYTES:],
-            )
+            raw = self._pending[:CHUNK_BYTES]
+            self._pending = self._pending[CHUNK_BYTES:]
             if self.recording:
                 chunk = np.frombuffer(raw, np.int16).astype(np.float32) / 32768
                 self.level = rms(chunk)

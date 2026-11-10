@@ -14,6 +14,7 @@ def test_missing_file_gives_defaults(tmp_path):
 
 
 def test_full_file_is_parsed(tmp_path):
+    (tmp_path / "terms.txt").touch()
     path = tmp_path / "config.toml"
     path.write_text(
         'llm_command = ["mycli", "-p", "{system_prompt}"]\nglossary_file = "terms.txt"\ntimeout_s = 30\n'
@@ -38,6 +39,7 @@ def test_full_file_is_parsed(tmp_path):
         ("llm_command = 'claude -p'\n", "llm_command"),
         ("llm_command = []\n", "llm_command"),
         ("glossary_file = 3\n", "glossary_file"),
+        ("glossary_file = 'absent.txt'\n", "does not exist"),
         ("timeout_s = -1\n", "timeout_s"),
         ("timeout_s = true\n", "timeout_s"),
         ("llm_command = [\n", "config.toml"),
