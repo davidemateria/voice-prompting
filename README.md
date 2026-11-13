@@ -134,3 +134,11 @@ uv sync
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 ```
+
+## Contributing
+
+Pull requests are not accepted; fork the project if you need changes. Bug reports are welcome as issues.
+
+## License
+
+[MIT](LICENSE)

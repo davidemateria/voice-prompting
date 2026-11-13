@@ -8,6 +8,8 @@ name = "voice-prompting"
 authors = [{ name = "Davide Materia" }]
 description = "Voice dictation for terminal coding agents: dictated prompts cleaned into English by your own LLM CLI."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 classifiers = [
   "Development Status :: 3 - Alpha",
